@@ -44,7 +44,7 @@ Temporal alignment:
 - Each fold's test set contains subjects from every movie (proportional to that movie's subject count)
 - Cohorts with ≥ `loso_threshold` subjects use k-fold; smaller cohorts use leave-one-subject-out
 
-This is the scheme appropriate when subjects do not all watch the same stimuli and your hypothesis is about a general functional relationship that should generalize to new brains.
+This is the scheme was designed for when subjects do not all watch the same stimuli and the hypothesis is about a general functional relationship that should generalize to new brains.
 
 ## Quickstart
 
