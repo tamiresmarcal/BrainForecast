@@ -1,0 +1,99 @@
+# Example experiment configuration
+#
+# Run with:
+#   python -m brain_forecast run --config configs/example.yaml
+
+log_level: INFO
+
+data:
+  path: /path/to/your/data.parquet
+  task_type: regression          # 'regression' or 'classification'
+
+  # Typed feature roles (TFT paper, Eq. 1).
+  # The package routes each role to the correct slot:
+  #   static           -> TFT static encoders / banded-ridge 'static' band
+  #   known_dynamic     -> TFT time_varying_known (stimulus, past AND future)
+  #   observed_dynamic  -> TFT time_varying_unknown (brain history, past only)
+  features:
+    # Time-invariant covariates (one value per subject).
+    static:
+      - age
+      - sex
+    # Subset of `static` that is categorical.
+    static_categorical:
+      - sex
+
+    # The stimulus: known across the whole timeline including the future.
+    known_dynamic:
+      - mov_v1
+      - mov_v2v4
+      - mov_loc
+      - mov_it
+      - mov_clip
+      - mov_audio_mel
+      - mov_audio_spec
+      - mov_audio_onset
+      - mov_emotion
+      - mov_face
+      - mov_narrative
+
+    # Brain history: known in the past only (we cannot know future brain).
+    observed_dynamic:
+      - umap0/5
+      - umap1/5
+      - umap2/5
+      - umap3/5
+      - umap4/5
+
+  target_cols:
+    # DFC connections (regression) | ROI activations (regression)
+    # | single brain-state column (set task_type: classification)
+    - UDFC_1
+    - UDFC_2
+    - UDFC_3
+
+# Forecast horizons in MINUTES
+horizons_min: [0, 5, 10, 15, 30, 45, 60]
+
+# Cross-validation
+cv:
+  k_default: 5
+  loso_threshold: 10
+  random_state: 0
+
+# Tabular adapter (used by persistence / MA / AR / banded_ridge).
+# HRF is applied to the known_dynamic (stimulus) columns automatically.
+tabular_adapter:
+  ops: [lag, rolling, target_history, hrf]
+  k_lag: 3
+  rolling_window: 10
+  target_history_lags: 5
+
+# Sequence adapter (used by TFT)
+sequence_adapter:
+  window_min: 5.0
+
+# Predictors to run
+predictors:
+  - name: persistence
+  - name: moving_average
+    kwargs: { k: 5 }
+  - name: ar
+    kwargs: { p: 5 }
+  - name: banded_ridge
+    kwargs: { n_iter: 20, backend: torch_cuda }
+  - name: tft
+    kwargs:
+      max_epochs: 30
+      hidden_size: 64
+      attention_head_size: 4
+      dropout: 0.1
+      batch_size: 128
+      learning_rate: 0.001
+
+output_dir: runs/example
+
+plots:
+  metric: r2_mean       # or 'f1_macro' for classification
+  per_cohort: true
+  heatmap: true
