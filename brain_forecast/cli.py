@@ -130,6 +130,10 @@ def _build_predictor_specs(names: list[str], args) -> list[dict]:
                     "learning_rate": args.learning_rate,
                     "num_workers": args.num_workers,
                     "device": "cuda",
+                    # Channel projection (Algonauts-style)
+                    "channel_proj": args.tft_channel_proj,
+                    "channel_proj_dim": args.tft_channel_proj_dim,
+                    "channel_pattern": args.tft_channel_pattern,
                 },
             })
         else:
@@ -284,6 +288,9 @@ def run_from_args(args) -> int:
     if args.window_min <= 0:
         log.error("--window-min must be > 0.")
         return 2
+    if args.tft_channel_proj_dim < 1:
+        log.error("--tft-channel-proj-dim must be >= 1.")
+        return 2
 
     # Resolve predictor list and decide GPU need.
     predictor_names = _parse_predictors(args.predictors)
@@ -323,6 +330,9 @@ def run_from_args(args) -> int:
         f"tft_batch_size={args.batch_size} "
         f"tft_learning_rate={args.learning_rate} "
         f"tft_num_workers={args.num_workers} "
+        f"tft_channel_proj={args.tft_channel_proj} "
+        f"tft_channel_proj_dim={args.tft_channel_proj_dim} "
+        f"tft_channel_pattern={args.tft_channel_pattern!r} "
         # Other predictor kwargs
         f"ar_p={args.ar_p} "
         f"ma_k={args.ma_k} "
@@ -548,6 +558,27 @@ def _add_run_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--learning-rate", type=float, default=5e-3)
     p.add_argument("--num-workers", type=int, default=8,
                    help="DataLoader worker processes for TFT. Default 8.")
+
+    # TFT channel projection (Algonauts-style; see predictors/channel_projection.py)
+    p.add_argument(
+        "--tft-channel-proj", action="store_true",
+        help="Enable per-channel learned projection of the 4900 known_dynamic "
+        "stim columns before the VSN. Mirrors TRIBE/VIBE/MedARC's pattern at "
+        "Algonauts 2025. Off by default to keep the legacy path identical.",
+    )
+    p.add_argument(
+        "--tft-channel-proj-dim", type=int, default=64,
+        help="Target projected dim per channel. Channels with raw_dim <= this "
+        "are kept at their raw_dim (identity). Default 64.",
+    )
+    p.add_argument(
+        "--tft-channel-pattern",
+        default=r"^mov_(?P<channel>.+)_(?P<dim>\d+)$",
+        help="Regex with named groups (channel, dim) used to recognise "
+        "projectable channel-dim columns. Default matches "
+        "mov_<channel>_<integer>. Columns not matching are kept as scalars "
+        "(e.g. mov_onset, mov_entropy_L1, mov_divergence_spec).",
+    )
 
     # Other predictor kwargs (used only if that predictor is in the list)
     p.add_argument("--ar-p", type=int, default=5, help="AR order p")
