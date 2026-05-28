@@ -3,7 +3,12 @@ reporting.py
 
 Aggregation tables and the horizon-curve plot.
 
-Two main entry points:
+Three main entry points:
+
+  load_fold_scores(output_dir)
+      Read per-fold scores.csv files written by a SLURM-array fold-parallel
+      run and return them concatenated as one DataFrame, the same shape
+      run_experiment() would return for a single-process N-fold run.
 
   aggregate_scores(results_df, by=('predictor', 'horizon_min'))
       Returns mean ± std (over folds, optionally over cohorts) of the
@@ -29,6 +34,78 @@ import seaborn as sns
 log = logging.getLogger(__name__)
 
 
+# ─── Per-fold loading (for SLURM-array fold-parallel runs) ───────────────
+
+def load_fold_scores(
+    output_dir: str | Path,
+    pattern: str = "fold_*",
+    scores_filename: str = "scores.csv",
+) -> pd.DataFrame:
+    """
+    Concatenate per-fold scores.csv files into one DataFrame.
+
+    Each fold-parallel SLURM array task writes its own
+    ``{output_dir}/fold_<idx>/scores.csv``. This helper reads them all back
+    and returns a single DataFrame that looks just like the in-memory
+    ``results`` a sequential ``run_experiment`` call would have produced.
+
+    Skipped folds (missing scores.csv) are logged as warnings — partial
+    array failures are visible but don't crash aggregation.
+
+    Parameters
+    ----------
+    output_dir : path-like
+        Parent dir containing ``fold_0/``, ``fold_1/``, ...
+    pattern : str
+        Glob pattern for per-fold subdirs. Default ``"fold_*"``.
+    scores_filename : str
+        Name of the per-fold scores file. Default ``"scores.csv"``.
+
+    Returns
+    -------
+    pd.DataFrame
+        Concatenated rows from every fold dir that had a scores file.
+        Includes an extra column ``_source_fold_dir`` for traceability.
+
+    Raises
+    ------
+    FileNotFoundError
+        If ``output_dir`` does not exist, no fold dirs match ``pattern``,
+        or no fold contained ``scores_filename``.
+    """
+    out = Path(output_dir)
+    if not out.exists():
+        raise FileNotFoundError(f"Output dir does not exist: {out}")
+
+    fold_dirs = sorted(out.glob(pattern))
+    if not fold_dirs:
+        raise FileNotFoundError(f"No fold subdirs matched {out}/{pattern}")
+
+    dfs: list[pd.DataFrame] = []
+    skipped: list[str] = []
+    for d in fold_dirs:
+        scores = d / scores_filename
+        if not scores.exists():
+            skipped.append(d.name)
+            continue
+        df = pd.read_csv(scores)
+        df["_source_fold_dir"] = d.name
+        dfs.append(df)
+
+    if skipped:
+        log.warning(
+            f"Skipped {len(skipped)} fold dir(s) with no {scores_filename}: {skipped}"
+        )
+    if not dfs:
+        raise FileNotFoundError(
+            f"No {scores_filename} files found under {out}/{pattern}"
+        )
+
+    combined = pd.concat(dfs, ignore_index=True)
+    log.info(f"Loaded {len(combined)} rows from {len(dfs)} fold(s) in {out}")
+    return combined
+
+
 # ─── Aggregation ─────────────────────────────────────────────────────────
 
 def aggregate_scores(
@@ -42,7 +119,7 @@ def aggregate_scores(
     Parameters
     ----------
     results : pd.DataFrame
-        From run_experiment().
+        From run_experiment() or load_fold_scores().
     metric : str
         Column name to aggregate (e.g. 'r2_mean', 'r_mean', 'f1_macro').
     by : iterable
@@ -72,7 +149,7 @@ def plot_horizon_curves(
     Parameters
     ----------
     results : pd.DataFrame
-        From run_experiment().
+        From run_experiment() or load_fold_scores().
     metric : str
         Column to plot on Y axis.
     ax : matplotlib axis, optional
@@ -127,7 +204,6 @@ def plot_horizon_curves(
 
 def _draw_curves(df: pd.DataFrame, metric: str, ax: plt.Axes) -> None:
     """Draw one line per predictor with std band."""
-    # Aggregate across folds (and cohorts, if multiple) per (predictor, horizon)
     agg = (
         df.groupby(["predictor", "horizon_min"])[metric]
         .agg(["mean", "std"])

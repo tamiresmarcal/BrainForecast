@@ -1,0 +1,12 @@
+brain_forecast.egg-info/
+brain_forecast/.ipynb_checkpoints/
+brain_forecast/__pycache__/
+brain_forecast/predictors/.ipynb_checkpoints/
+brain_forecast/predictors/__pycache__/
+configs/.ipynb_checkpoints/
+inputs/
+lightning_logs/
+logs/
+notebooks/.ipynb_checkpoints/
+outputs/
+runs/.ipynb_checkpoints/
